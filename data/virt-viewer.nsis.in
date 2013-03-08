@@ -43,6 +43,19 @@ Function RegisterApplication
     WriteRegStr HKCU "${REG_IEPOLICY}" "AppPath" "$INSTDIR\bin"
     WriteRegStr HKCU "${REG_IEPOLICY}" "AppName" "remote-viewer.exe"
     WriteRegDWord HKCU "${REG_IEPOLICY}" "Policy" 3
+
+FunctionEnd
+
+Function RegisterURIHandler
+    DetailPrint "Registering spice URI Handler"
+    DeleteRegKey HKCR "spice"
+    WriteRegStr HKCR "spice" "" "URL:spice"
+    WriteRegStr HKCR "spice" "URL Protocol" ""
+    WriteRegStr HKCR "spice\DefaultIcon" "" "$\"$INSTDIR\bin\remote-viewer.exe$\""
+    WriteRegStr HKCR "spice\shell" "" ""
+    WriteRegStr HKCR "spice\shell\Open" "" ""
+    WriteRegStr HKCR "spice\shell\Open\command" "" "$\"$INSTDIR\bin\remote-viewer.exe$\" $\"%1$\""
+
 FunctionEnd
 
 Function .onInit
@@ -232,6 +245,8 @@ Section "Uninstall"
   DeleteRegKey HKCU "${REG_UNINSTALL}"
   DeleteRegKey HKCU "${REG_IEPOLICY}"
 
+  # Remove spice protocol handler
+  DeleteRegKey HKCR "spice"
 
   RMDir /r "$INSTDIR\share"
 
@@ -344,4 +359,5 @@ SectionEnd
 Section -post
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   Call RegisterApplication
+  Call RegisterURIHandler
 SectionEnd
