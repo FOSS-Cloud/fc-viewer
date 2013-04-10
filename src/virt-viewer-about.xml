@@ -15,7 +15,11 @@
     <property name="program_name">Virtual Machine Viewer</property>
     <property name="copyright" translatable="yes">Copyright (C) 2007-2012 Daniel P. Berrange
 Copyright (C) 2007-2012 Red Hat, Inc.</property>
-    <property name="comments" translatable="yes">A remote desktop client built with GTK-VNC, SPICE-GTK and libvirt</property>
+    <property name="comments" translatable="yes">A remote desktop client built with GTK-VNC, SPICE-GTK and libvirt
+
+This build is provided by FOSS-Group GmbH Germany for the FOSS-Cloud project
+
+http://www.foss-cloud.org/</property>
     <property name="website">http://virt-manager.org/</property>
     <property name="website_label" translatable="yes">virt-manager.org</property>
     <property name="license" translatable="yes">This program is free software; you can redistribute it and/or modify
