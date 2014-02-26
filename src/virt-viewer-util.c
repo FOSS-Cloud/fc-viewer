@@ -41,6 +41,12 @@
 
 #include "virt-viewer-util.h"
 
+GQuark
+virt_viewer_error_quark(void)
+{
+  return g_quark_from_static_string ("virt-viewer-error-quark");
+}
+
 GtkBuilder *virt_viewer_util_load_ui(const char *name)
 {
     struct stat sb;
@@ -51,20 +57,26 @@ GtkBuilder *virt_viewer_util_load_ui(const char *name)
     if (stat(name, &sb) >= 0) {
         gtk_builder_add_from_file(builder, name, &error);
     } else {
-        const gchar * const * dirs = g_get_system_data_dirs();
-        g_return_val_if_fail(dirs != NULL, NULL);
+        gchar *path = g_build_filename(PACKAGE_DATADIR, "ui", name, NULL);
+        gboolean success = (gtk_builder_add_from_file(builder, path, NULL) != 0);
+        g_free(path);
 
-        while (dirs[0] != NULL) {
-            gchar *path = g_build_filename(dirs[0], PACKAGE, "ui", name, NULL);
-            if (gtk_builder_add_from_file(builder, path, NULL) != 0) {
+        if (!success) {
+            const gchar * const * dirs = g_get_system_data_dirs();
+            g_return_val_if_fail(dirs != NULL, NULL);
+
+            while (dirs[0] != NULL) {
+                path = g_build_filename(dirs[0], PACKAGE, "ui", name, NULL);
+                if (gtk_builder_add_from_file(builder, path, NULL) != 0) {
+                    g_free(path);
+                    break;
+                }
                 g_free(path);
-                break;
+                dirs++;
             }
-            g_free(path);
-            dirs++;
+            if (dirs[0] == NULL)
+                goto failed;
         }
-        if (dirs[0] == NULL)
-            goto failed;
     }
 
     if (error) {
@@ -360,7 +372,7 @@ ctrl_key_to_gtk_key(const gchar *key)
         { "pagedown", "Page_Down" },
 
         /* { "home", "home" }, */
-        /* { "end", "end" }, */
+        { "end", "End" },
         /* { "space", "space" }, */
 
         { "enter", "Return" },
@@ -408,6 +420,55 @@ spice_hotkey_to_gtk_accelerator(const gchar *key)
     return accel;
 }
 
+/**
+ * virt_viewer_compare_version:
+ * @s1: a version-like string
+ * @s2: a version-like string
+ *
+ * Compare two version-like strings: 1.1 > 1.0, 1.0.1 > 1.0, 1.10 > 1.7...
+ *
+ * String suffix (1.0rc1 etc) are not accepted, and will return 0.
+ *
+ * Returns: negative value if s1 < s2; zero if s1 = s2; positive value if s1 > s2.
+ **/
+gint
+virt_viewer_compare_version(const gchar *s1, const gchar *s2)
+{
+    gint i, retval = 0;
+    gchar **v1, **v2;
+
+    g_return_val_if_fail(s1 != NULL, 0);
+    g_return_val_if_fail(s2 != NULL, 0);
+
+    v1 = g_strsplit(s1, ".", -1);
+    v2 = g_strsplit(s2, ".", -1);
+
+    for (i = 0; v1[i] && v2[i]; ++i) {
+        gchar *e1 = NULL, *e2 = NULL;
+        guint64 m1 = g_ascii_strtoull(v1[i], &e1, 10);
+        guint64 m2 = g_ascii_strtoull(v2[i], &e2, 10);
+
+        retval = m1 - m2;
+        if (retval != 0)
+            goto end;
+
+        g_return_val_if_fail(e1 && e2, 0);
+        if (*e1 || *e2) {
+            g_warning("the version string contains suffix");
+            goto end;
+        }
+    }
+
+    if (v1[i])
+        retval = 1;
+    else if (v2[i])
+        retval = -1;
+
+end:
+    g_strfreev(v1);
+    g_strfreev(v2);
+    return retval;
+}
 /*
  * Local variables:
  *  c-indent-level: 4

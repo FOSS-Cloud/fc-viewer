@@ -20,6 +20,10 @@
  */
 
 #include <config.h>
+
+#include <glib/gi18n.h>
+#include <glib/gstdio.h>
+
 #include "virt-viewer-util.h"
 #include "virt-viewer-file.h"
 
@@ -34,6 +38,7 @@
  * port=5900
  *
  *  The current list of [virt-viewer] keys is:
+ * - version: string
  * - type: string, mandatory, values: "spice" (later "vnc" etc..)
  * - host: string
  * - port: int
@@ -50,12 +55,16 @@
  * - release-cursor: string in spice hotkey format
  * - smartcard-insert: string in spice hotkey format
  * - smartcard-remove: string in spice hotkey format
+ * - secure-attention: string in spice hotkey format
  * - enable-smartcard: int (0 or 1 atm)
  * - enable-usbredir: int (0 or 1 atm)
  * - color-depth: int
  * - disable-effects: string list
  * - enable-usb-autoshare: int
  * - usb-filter: string
+ * - secure-channels: string list
+ * - delete-this-file: int (0 or 1 atm)
+ * - proxy: proxy URL, like http://user:pass@foobar:8080
  *
  * (the file can be extended with extra groups or keys, which should
  * be prefixed with x- to avoid later conflicts)
@@ -94,6 +103,10 @@ enum  {
     PROP_ENABLE_USB_AUTOSHARE,
     PROP_USB_FILTER,
     PROP_PROXY,
+    PROP_VERSION,
+    PROP_SECURE_CHANNELS,
+    PROP_DELETE_THIS_FILE,
+    PROP_SECURE_ATTENTION,
 };
 
 VirtViewerFile*
@@ -122,6 +135,12 @@ virt_viewer_file_new(const gchar* location, GError** error)
         g_propagate_error(error, inner_error);
         g_object_unref(self);
         return NULL;
+    }
+
+    if (virt_viewer_file_get_delete_this_file(self) &&
+        !g_getenv("VIRT_VIEWER_KEEP_FILE")) {
+        if (g_unlink(location) != 0)
+            g_warning("failed to remove %s", location);
     }
 
     return self;
@@ -420,6 +439,19 @@ virt_viewer_file_set_release_cursor(VirtViewerFile* self, const gchar* value)
 }
 
 gchar*
+virt_viewer_file_get_secure_attention(VirtViewerFile* self)
+{
+    return virt_viewer_file_get_string(self, "secure-attention");
+}
+
+void
+virt_viewer_file_set_secure_attention(VirtViewerFile* self, const gchar* value)
+{
+    virt_viewer_file_set_string(self, "secure-attention", value);
+    g_object_notify(G_OBJECT(self), "secure-attention");
+}
+
+gchar*
 virt_viewer_file_get_smartcard_remove(VirtViewerFile* self)
 {
     return virt_viewer_file_get_string(self, "smartcard-remove");
@@ -469,6 +501,19 @@ virt_viewer_file_set_enable_usbredir(VirtViewerFile* self, gint value)
 {
     virt_viewer_file_set_int(self, "enable-usbredir", !!value);
     g_object_notify(G_OBJECT(self), "enable-usbredir");
+}
+
+gint
+virt_viewer_file_get_delete_this_file(VirtViewerFile* self)
+{
+    return virt_viewer_file_get_int(self, "delete-this-file");
+}
+
+void
+virt_viewer_file_set_delete_this_file(VirtViewerFile* self, gint value)
+{
+    virt_viewer_file_set_int(self, "delete-this-file", !!value);
+    g_object_notify(G_OBJECT(self), "delete-this-file");
 }
 
 gint
@@ -523,8 +568,34 @@ virt_viewer_file_set_proxy(VirtViewerFile* self, const gchar* value)
     g_object_notify(G_OBJECT(self), "proxy");
 }
 
+gchar*
+virt_viewer_file_get_version(VirtViewerFile* self)
+{
+    return virt_viewer_file_get_string(self, "version");
+}
+
+void
+virt_viewer_file_set_version(VirtViewerFile* self, const gchar* value)
+{
+    virt_viewer_file_set_string(self, "version", value);
+    g_object_notify(G_OBJECT(self), "version");
+}
+
+gchar**
+virt_viewer_file_get_secure_channels(VirtViewerFile* self, gsize* length)
+{
+    return virt_viewer_file_get_string_list(self, "secure-channels", length);
+}
+
+void
+virt_viewer_file_set_secure_channels(VirtViewerFile* self, const gchar* const* value, gsize length)
+{
+    virt_viewer_file_set_string_list(self, "secure-channels", value, length);
+    g_object_notify(G_OBJECT(self), "secure-channels");
+}
+
 static void
-spice_hotkey_set_accel(VirtViewerApp *app, const gchar *accel_path, const gchar *key)
+spice_hotkey_set_accel(const gchar *accel_path, const gchar *key)
 {
     gchar *accel;
     guint accel_key;
@@ -535,46 +606,67 @@ spice_hotkey_set_accel(VirtViewerApp *app, const gchar *accel_path, const gchar 
     g_free(accel);
 
     gtk_accel_map_change_entry(accel_path, accel_key, accel_mods, TRUE);
-
-    g_object_set(G_OBJECT(app), "enable-accel", TRUE, NULL);
 }
 
-void
-virt_viewer_file_fill_app(VirtViewerFile* self, VirtViewerApp *app)
+gboolean
+virt_viewer_file_fill_app(VirtViewerFile* self, VirtViewerApp *app, GError **error)
 {
-    g_return_if_fail(VIRT_VIEWER_IS_FILE(self));
-    g_return_if_fail(VIRT_VIEWER_IS_APP(app));
+    g_return_val_if_fail(VIRT_VIEWER_IS_FILE(self), FALSE);
+    g_return_val_if_fail(VIRT_VIEWER_IS_APP(app), FALSE);
+
+    if (virt_viewer_file_is_set(self, "version")) {
+        gchar *val = virt_viewer_file_get_version(self);
+
+        if (virt_viewer_compare_version(val, PACKAGE_VERSION) > 0) {
+            g_set_error(error,
+                VIRT_VIEWER_ERROR,
+                VIRT_VIEWER_ERROR_FAILED,
+                _("At least %s version %s is required to setup this connection"),
+                g_get_application_name(), val);
+
+            g_free(val);
+            return FALSE;
+        }
+
+        g_free(val);
+    }
 
     if (virt_viewer_file_is_set(self, "title"))
         virt_viewer_app_set_title(app, virt_viewer_file_get_title(self));
 
-    if (virt_viewer_file_is_set(self, "release-cursor")) {
-        gchar *val = virt_viewer_file_get_release_cursor(self);
-        spice_hotkey_set_accel(app, "<virt-viewer>/view/release-cursor", val);
-        g_free(val);
+
+    virt_viewer_app_clear_hotkeys(app);
+
+    {
+        gchar *val;
+        static const struct {
+            const char *prop;
+            const char *accel;
+        } accels[] = {
+            { "release-cursor", "<virt-viewer>/view/release-cursor" },
+            { "toggle-fullscreen", "<virt-viewer>/view/toggle-fullscreen" },
+            { "smartcard-insert", "<virt-viewer>/file/smartcard-insert" },
+            { "smartcard-remove", "<virt-viewer>/file/smartcard-remove" },
+            { "secure-attention", "<virt-viewer>/send/secure-attention" }
+        };
+        int i;
+
+        for (i = 0; i < G_N_ELEMENTS(accels); i++) {
+            if (!virt_viewer_file_is_set(self, accels[i].prop))
+                continue;
+            g_object_get(self, accels[i].prop, &val, NULL);
+            spice_hotkey_set_accel(accels[i].accel, val);
+            g_free(val);
+        }
     }
 
-    if (virt_viewer_file_is_set(self, "toggle-fullscreen")) {
-        gchar *val = virt_viewer_file_get_toggle_fullscreen(self);
-        spice_hotkey_set_accel(app, "<virt-viewer>/view/fullscreen", val);
-        g_free(val);
-    }
-
-    if (virt_viewer_file_is_set(self, "smartcard-remove")) {
-        gchar *val = virt_viewer_file_get_smartcard_remove(self);
-        spice_hotkey_set_accel(app, "<virt-viewer>/view/smartcard-remove", val);
-        g_free(val);
-    }
-
-    if (virt_viewer_file_is_set(self, "smartcard-insert")) {
-        gchar *val = virt_viewer_file_get_smartcard_insert(self);
-        spice_hotkey_set_accel(app, "<virt-viewer>/view/smartcard-insert", val);
-        g_free(val);
-    }
+    virt_viewer_app_set_enable_accel(app, TRUE);
 
     if (virt_viewer_file_is_set(self, "fullscreen"))
         g_object_set(G_OBJECT(app), "fullscreen",
             virt_viewer_file_get_fullscreen(self), NULL);
+
+    return TRUE;
 }
 
 static void
@@ -628,6 +720,9 @@ virt_viewer_file_set_property(GObject* object, guint property_id,
     case PROP_RELEASE_CURSOR:
         virt_viewer_file_set_release_cursor(self, g_value_get_string(value));
         break;
+    case PROP_SECURE_ATTENTION:
+        virt_viewer_file_set_secure_attention(self, g_value_get_string(value));
+        break;
     case PROP_ENABLE_SMARTCARD:
         virt_viewer_file_set_enable_smartcard(self, g_value_get_int(value));
         break;
@@ -649,6 +744,16 @@ virt_viewer_file_set_property(GObject* object, guint property_id,
         break;
     case PROP_PROXY:
         virt_viewer_file_set_proxy(self, g_value_get_string(value));
+        break;
+    case PROP_VERSION:
+        virt_viewer_file_set_version(self, g_value_get_string(value));
+        break;
+    case PROP_SECURE_CHANNELS:
+        strv = g_value_get_boxed(value);
+        virt_viewer_file_set_secure_channels(self, (const gchar* const*)strv, g_strv_length(strv));
+        break;
+    case PROP_DELETE_THIS_FILE:
+        virt_viewer_file_set_delete_this_file(self, g_value_get_int(value));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
@@ -705,6 +810,9 @@ virt_viewer_file_get_property(GObject* object, guint property_id,
     case PROP_RELEASE_CURSOR:
         g_value_take_string(value, virt_viewer_file_get_release_cursor(self));
         break;
+    case PROP_SECURE_ATTENTION:
+        g_value_take_string(value, virt_viewer_file_get_secure_attention(self));
+        break;
     case PROP_ENABLE_SMARTCARD:
         g_value_set_int(value, virt_viewer_file_get_enable_smartcard(self));
         break;
@@ -725,6 +833,15 @@ virt_viewer_file_get_property(GObject* object, guint property_id,
         break;
     case PROP_PROXY:
         g_value_take_string(value, virt_viewer_file_get_proxy(self));
+        break;
+    case PROP_VERSION:
+        g_value_take_string(value, virt_viewer_file_get_version(self));
+        break;
+    case PROP_SECURE_CHANNELS:
+        g_value_take_boxed(value, virt_viewer_file_get_secure_channels(self, NULL));
+        break;
+    case PROP_DELETE_THIS_FILE:
+        g_value_set_int(value, virt_viewer_file_get_delete_this_file(self));
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
@@ -813,6 +930,10 @@ virt_viewer_file_class_init(VirtViewerFileClass* klass)
         g_param_spec_string("release-cursor", "release-cursor", "release-cursor", NULL,
                             G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE));
 
+    g_object_class_install_property(G_OBJECT_CLASS(klass), PROP_SECURE_ATTENTION,
+        g_param_spec_string("secure-attention", "secure-attention", "secure-attention", NULL,
+                            G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE));
+
     g_object_class_install_property(G_OBJECT_CLASS(klass), PROP_ENABLE_SMARTCARD,
         g_param_spec_int("enable-smartcard", "enable-smartcard", "enable-smartcard", 0, 1, 0,
                          G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE));
@@ -844,4 +965,16 @@ virt_viewer_file_class_init(VirtViewerFileClass* klass)
     g_object_class_install_property(G_OBJECT_CLASS(klass), PROP_PROXY,
         g_param_spec_string("proxy", "proxy", "proxy", NULL,
                             G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE));
+
+    g_object_class_install_property(G_OBJECT_CLASS(klass), PROP_VERSION,
+        g_param_spec_string("version", "version", "version", NULL,
+                            G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE));
+
+    g_object_class_install_property(G_OBJECT_CLASS(klass), PROP_SECURE_CHANNELS,
+        g_param_spec_boxed("secure-channels", "secure-channels", "secure-channels", G_TYPE_STRV,
+                           G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE));
+
+    g_object_class_install_property(G_OBJECT_CLASS(klass), PROP_DELETE_THIS_FILE,
+        g_param_spec_int("delete-this-file", "delete-this-file", "delete-this-file", 0, 1, 0,
+                         G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE));
 }

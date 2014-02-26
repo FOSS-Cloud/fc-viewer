@@ -2,14 +2,30 @@
 
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
 
+  <?define Version = "@WINDOWS_PRODUCTVERSION@"?>
+  <?define Arch = "@WIXL_ARCH@"?>
+  <?if $(var.Arch) = "x64"?>
+      <?define GLIB_ARCH = "win64"?>
+      <?define ArchString = "64-bit"?>
+      <?define ArchProgramFilesFolder = "ProgramFiles64Folder"?>
+      <?define Win64 = "yes"?>
+  <?else?>
+      <?define GLIB_ARCH = "win32"?>
+      <?define ArchString = "32-bit"?>
+      <?define ArchProgramFilesFolder = "ProgramFilesFolder"?>
+      <?define Win64 = "no"?>
+  <?endif?>
+
   <?require spice-gtk.wxi?>
   <?require gtk-vnc.wxi?>
   <?require libvirt.wxi?>
 
-  <?define Version = "@VERSION@"?>
   <?define UpgradeCode = "5B027138-1A63-49E6-877E-055E5EEC1903"?>
-  <Product Id="*" Name="VirtViewer" Manufacturer="$(env.MANUFACTURER)"
-           Version="$(var.Version)" UpgradeCode="$(var.UpgradeCode)"
+  <Product Id="*"
+           Name="VirtViewer @VERSION@@BUILDID@ ($(var.ArchString))"
+           Manufacturer="$(env.MANUFACTURER)"
+           Version="$(var.Version)"
+           UpgradeCode="$(var.UpgradeCode)"
            Language="1033">
 
     <Package InstallerVersion="200" Compressed="yes" Comments="comments"/>
@@ -48,7 +64,7 @@
     </DirectoryRef>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="ProgramFilesFolder">
+      <Directory Id="$(var.ArchProgramFilesFolder)">
         <Directory Id="INSTALLDIR" Name="VirtViewer">
           <Component Id="CDepsFile" Guid="*">
             <File Id="filA1E799D196006E6DF67DACE15B8C6193" KeyPath="yes" Source="deps.txt"/>
@@ -59,6 +75,29 @@
         <Directory Id="MENUDIR" Name="VirtViewer"/>
       </Directory>
     </Directory>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <Directory Id="DirShare" Name="share">
+        <Directory Id="DirHwdata" Name="hwdata">
+          <Component Id="CHwdataUSB" Guid="*">
+            <File Id="FHwdataUSB" KeyPath="yes" Source="/usr/share/hwdata/usb.ids"/>
+          </Component>
+        </Directory>
+
+        <Directory Id="DirIcons" Name="icons">
+          <Directory Id="DirIconsHi" Name="hicolor">
+            <Directory Id="DirIconsHi16x16" Name="16x16">
+              <Directory Id="DirIconsHi16x16Apps" Name="apps">
+                <Component Id="CIconsHi16x16Apps" Guid="*">
+                  <File Id="FIconskeyboardshortcuts" KeyPath="yes"
+                        Source="/usr/share/icons/gnome/16x16/apps/preferences-desktop-keyboard-shortcuts.png"/>
+                </Component>
+              </Directory>
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+    </DirectoryRef>
 
     <DirectoryRef Id="MENUDIR">
       <Component Id="CShortcut" Guid="*">
@@ -81,12 +120,14 @@
       <ComponentRef Id="CShortcut"/>
       <ComponentRef Id="CRegistryEntries"/>
       <ComponentRef Id="CProgIds"/>
+      <ComponentRef Id="CIconsHi16x16Apps"/>
+      <ComponentRef Id="CHwdataUSB"/>
     </Feature>
 
     <InstallExecuteSequence>
       <RemoveExistingProducts After="InstallValidate"/>
     </InstallExecuteSequence>
 
-    <Icon Id="virt-viewer.ico" SourceFile="virt-viewer.ico"/>
+    <Icon Id="virt-viewer.ico" SourceFile="../icons/virt-viewer.ico"/>
   </Product>
 </Wix>

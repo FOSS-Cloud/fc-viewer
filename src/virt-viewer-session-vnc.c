@@ -44,7 +44,7 @@ struct _VirtViewerSessionVncPrivate {
 static void virt_viewer_session_vnc_close(VirtViewerSession* session);
 static gboolean virt_viewer_session_vnc_open_fd(VirtViewerSession* session, int fd);
 static gboolean virt_viewer_session_vnc_open_host(VirtViewerSession* session, const gchar *host, const gchar *port, const gchar *tlsport);
-static gboolean virt_viewer_session_vnc_open_uri(VirtViewerSession* session, const gchar *uri);
+static gboolean virt_viewer_session_vnc_open_uri(VirtViewerSession* session, const gchar *uri, GError **error);
 static gboolean virt_viewer_session_vnc_channel_open_fd(VirtViewerSession* session,
                                                         VirtViewerSessionChannel* channel, int fd);
 
@@ -110,7 +110,10 @@ static void
 virt_viewer_session_vnc_disconnected(VncDisplay *vnc G_GNUC_UNUSED,
                                      VirtViewerSessionVnc *session)
 {
-    GtkWidget *display = virt_viewer_display_vnc_new(session->priv->vnc);
+    GtkWidget *display;
+
+    virt_viewer_session_clear_displays(VIRT_VIEWER_SESSION(session));
+    display = virt_viewer_display_vnc_new(session->priv->vnc);
     DEBUG_LOG("Disconnected");
     g_signal_emit_by_name(session, "session-disconnected");
     virt_viewer_display_set_show_hint(VIRT_VIEWER_DISPLAY(display),
@@ -198,7 +201,8 @@ virt_viewer_session_vnc_open_host(VirtViewerSession* session,
 
 static gboolean
 virt_viewer_session_vnc_open_uri(VirtViewerSession* session,
-                                 const gchar *uristr)
+                                 const gchar *uristr,
+                                 GError **error)
 {
     VirtViewerSessionVnc *self = VIRT_VIEWER_SESSION_VNC(session);
     VirtViewerFile *file = virt_viewer_session_get_file(session);
@@ -217,7 +221,8 @@ virt_viewer_session_vnc_open_uri(VirtViewerSession* session,
         portstr = g_strdup_printf("%d", virt_viewer_file_get_port(file));
         hoststr = g_strdup(virt_viewer_file_get_host(file));
 
-        virt_viewer_file_fill_app(file, app);
+        if (!virt_viewer_file_fill_app(file, app, error))
+            return FALSE;
     } else {
         xmlURIPtr uri = NULL;
         if (!(uri = xmlParseURI(uristr)))

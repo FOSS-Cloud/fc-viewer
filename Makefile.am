@@ -2,8 +2,9 @@ NULL =
 
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = icons src man plugin po data
+SUBDIRS = icons src man po data
 
+AM_DISTCHECK_CONFIGURE_FLAGS = --disable-update-mimedb
 EXTRA_DIST =					\
 	$(PACKAGE).spec				\
 	intltool-extract.in			\
@@ -76,5 +77,10 @@ if OS_WIN32
 nsis:
 	make -C $(builddir)/data virt-viewer-$(VERSION).exe
 endif
+
+
+# this make sure those files are regenerated when they change
+# (in maintainer-mode)
+all-local: virt-viewer.spec mingw-virt-viewer.spec
 
 -include $(top_srcdir)/git.mk

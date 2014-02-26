@@ -30,6 +30,9 @@
 
 G_BEGIN_DECLS
 
+#define MIN_ZOOM_LEVEL 10
+#define MAX_ZOOM_LEVEL 400
+
 #define VIRT_VIEWER_TYPE_WINDOW virt_viewer_window_get_type()
 
 #define VIRT_VIEWER_WINDOW(obj)                                                \
@@ -71,9 +74,10 @@ void virt_viewer_window_hide(VirtViewerWindow *self);
 void virt_viewer_window_set_zoom_level(VirtViewerWindow *self, gint zoom_level);
 gint virt_viewer_window_get_zoom_level(VirtViewerWindow *self);
 void virt_viewer_window_leave_fullscreen(VirtViewerWindow *self);
-void virt_viewer_window_enter_fullscreen(VirtViewerWindow *self, gboolean move, gint x, gint y);
+void virt_viewer_window_enter_fullscreen(VirtViewerWindow *self, gint monitor);
 GtkMenuItem *virt_viewer_window_get_menu_displays(VirtViewerWindow *self);
 GtkBuilder* virt_viewer_window_get_builder(VirtViewerWindow *window);
+void virt_viewer_window_set_kiosk(VirtViewerWindow *self, gboolean enabled);
 
 G_END_DECLS
 

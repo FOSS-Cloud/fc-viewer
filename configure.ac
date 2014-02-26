@@ -1,5 +1,5 @@
 
-AC_INIT([virt-viewer],[0.5.6])
+AC_INIT([virt-viewer],[0.5.7])
 AC_CONFIG_SRCDIR(src/virt-viewer-main.c)
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -19,13 +19,34 @@ GTK2_REQUIRED="2.18.0"
 GTK3_REQUIRED="3.0"
 GTK_VNC1_REQUIRED="0.3.8"
 GTK_VNC2_REQUIRED="0.4.0"
-SPICE_GTK_REQUIRED="0.16.26"
+SPICE_GTK_REQUIRED="0.22"
 SPICE_PROTOCOL_REQUIRED="0.10.1"
+GOVIRT_REQUIRED="0.3.0"
+
+AC_SUBST([GLIB2_REQUIRED])
+AC_SUBST([LIBXML2_REQUIRED])
+AC_SUBST([LIBVIRT_REQUIRED])
+AC_SUBST([GTK2_REQUIRED])
+AC_SUBST([GTK3_REQUIRED])
+AC_SUBST([GTK_VNC1_REQUIRED])
+AC_SUBST([GTK_VNC2_REQUIRED])
+AC_SUBST([SPICE_GTK_REQUIRED])
+AC_SUBST([SPICE_PROTOCOL_REQUIRED])
+AC_SUBST([GOVIRT_REQUIRED])
 
 AC_MSG_CHECKING([for native Win32])
 case "$host_os" in
      *mingw*|*cygwin*)
         os_win32=yes
+        case "$host" in
+            amd64*|x86_64*)
+                WIXL_ARCH="x64"
+            ;;
+            *)
+                WIXL_ARCH="x86"
+            ;;
+        esac
+        AC_SUBST(WIXL_ARCH)
         ;;
      *)
         os_win32=no
@@ -98,12 +119,12 @@ AM_CONDITIONAL([HAVE_LIBVIRT], [test "x$have_libvirt" = "xyes"])
 
 AC_MSG_CHECKING([which gtk+ version to compile against])
 AC_ARG_WITH([gtk],
-  [AS_HELP_STRING([--with-gtk=2.0|3.0],[which gtk+ version to compile against (default: 2.0)])],
+  [AS_HELP_STRING([--with-gtk=2.0|3.0],[which gtk+ version to compile against (default: 3.0)])],
   [case "$with_gtk" in
      2.0|3.0) ;;
      *) AC_MSG_ERROR([invalid gtk version specified]) ;;
    esac],
-  [with_gtk=2.0])
+  [with_gtk=3.0])
 AC_MSG_RESULT([$with_gtk])
 
 case "$with_gtk" in
@@ -165,32 +186,25 @@ AS_IF([test "x$have_spice_gtk" = "xyes"],
 ])
 AM_CONDITIONAL([HAVE_SPICE_GTK], [test "x$have_spice_gtk" = "xyes"])
 
+AC_ARG_WITH([ovirt],
+    AS_HELP_STRING([--without-ovirt], [Ignore presence of librest and disable oVirt support]))
+
+AS_IF([test "x$with_ovirt" != "xno"],
+      [PKG_CHECK_MODULES([OVIRT], [govirt-1.0 >= $GOVIRT_REQUIRED],
+                         [have_ovirt=yes], [have_ovirt=no])],
+      [have_ovirt=no])
+
+AS_IF([test "x$have_ovirt" = "xyes"],
+      [AC_DEFINE([HAVE_OVIRT], 1, [Have libgovirt?])],
+      [AS_IF([test "x$with_ovirt" = "xyes"],
+             [AC_MSG_ERROR([oVirt support requested but libgovirt not found])
+      ])
+])
+
 dnl Decide if this platform can support the SSH tunnel feature.
 AC_CHECK_HEADERS([sys/socket.h sys/un.h windows.h])
 AC_CHECK_FUNCS([fork socketpair])
 
-dnl --enable-plugin to enable the browser plugin.
-NSPR_REQUIRED=4.0.0
-FIREFOX_PLUGIN_REQUIRED=1.5.0
-MOZILLA_PLUGIN_REQUIRED=1.8
-AC_ARG_ENABLE(plugin,
-        [  --enable-plugin=[no/yes] enable browser plugin [default=no]],,
-        enable_plugin=no)
-if test "x$enable_plugin" = "xyes"; then
-    dnl Check for Netscape Portable Runtime development package.
-    PKG_CHECK_MODULES(NSPR, nspr >= $NSPR_REQUIRED)
-    dnl Check for Firefox plugin package (also includes NSPR cflags/libs).
-    PKG_CHECK_MODULES(FIREFOX_PLUGIN,
-                     firefox-plugin >= $FIREFOX_PLUGIN_REQUIRED, ,[
-        PKG_CHECK_MODULES(MOZILLA_PLUGIN,
-                          mozilla-plugin >= $MOZILLA_PLUGIN_REQUIRED)
-        FIREFOX_PLUGIN_CFLAGS="$MOZILLA_PLUGIN_CFLAGS"
-        FIREFOX_PLUGIN_LIBS="$MOZILLA_PLUGIN_LIBS"
-    ])
-    AC_SUBST(FIREFOX_PLUGIN_CFLAGS)
-    AC_SUBST(FIREFOX_PLUGIN_LIBS)
-fi
-AM_CONDITIONAL(ENABLE_PLUGIN, [test "x$enable_plugin" = "xyes"])
 
 if test "x$have_gtk_vnc" != "xyes" && test "x$have_spice_gtk" != "xyes"; then
     AC_MSG_ERROR([At least one of spice or vnc must be used])
@@ -199,6 +213,30 @@ fi
 AC_ARG_WITH([buildid],
     AS_HELP_STRING([--with-buildid=id], [Set additional build version details]))
 AC_DEFINE_UNQUOTED([BUILDID], "$with_buildid", [Build version details])
+if test "x$with_buildid" != x; then
+    AC_SUBST([BUILDID], "-$with_buildid")
+fi
+
+major=`echo $PACKAGE_VERSION | cut -d. -f1`
+minor=`echo $PACKAGE_VERSION | cut -d. -f2`
+micro=`echo $PACKAGE_VERSION | cut -d. -f3`
+buildid=`echo $with_buildid | cut -d. -f1`
+if test "x$buildid" = x; then
+   buildid=0
+fi
+build=`expr $micro \* 256 + $buildid`
+WINDOWS_PRODUCTVERSION="$major.$minor.$build"
+AC_SUBST([WINDOWS_PRODUCTVERSION])
+
+
+AC_PATH_PROG(UPDATE_MIME_DATABASE, update-mime-database, no)
+
+AC_ARG_ENABLE(update-mimedb,
+   AS_HELP_STRING([--disable-update-mimedb],
+                   [disable the update-mime-database after install [default=no]]),,
+    enable_update_mimedb=yes)
+AM_CONDITIONAL(ENABLE_UPDATE_MIMEDB, test x$enable_update_mimedb = xyes)
+
 
 AC_CONFIG_FILES([
     Makefile
@@ -215,7 +253,6 @@ AC_CONFIG_FILES([
     icons/256x256/Makefile
     man/Makefile
     mingw-virt-viewer.spec
-    plugin/Makefile
     po/Makefile.in
     src/Makefile
     src/virt-viewer.rc
@@ -229,7 +266,6 @@ AC_MSG_NOTICE([=====================])
 AC_MSG_NOTICE([])
 AC_MSG_NOTICE([ Features:])
 AC_MSG_NOTICE([])
-AC_MSG_NOTICE([   Plugin: $enable_plugin])
 AC_MSG_NOTICE([      Gtk: $with_gtk])
 AC_MSG_NOTICE([])
 AC_MSG_NOTICE([ Libraries:])
@@ -245,4 +281,6 @@ AC_MSG_NOTICE([])
 AC_MSG_NOTICE([     LIBXML2: $LIBXML2_CFLAGS $LIBXML2_LIBS])
 AC_MSG_NOTICE([])
 AC_MSG_NOTICE([     LIBVIRT: $LIBVIRT_CFLAGS $LIBVIRT_LIBS])
+AC_MSG_NOTICE([])
+AC_MSG_NOTICE([       OVIRT: $OVIRT_CFLAGS $OVIRT_LIBS])
 AC_MSG_NOTICE([])
